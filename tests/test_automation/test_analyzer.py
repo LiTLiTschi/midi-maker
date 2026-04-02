@@ -182,6 +182,30 @@ class TestDetectCCType:
 
         assert result == CCAutomationType.FILTER_SWEEP
 
+    def test_tied_cc_counts_follow_first_cc_encountered(self) -> None:
+        """Test equal counts resolve to the first CC encountered."""
+        events = [
+            CCEvent(cc_number=7, value=100, channel=0, timestamp=0.0),
+            CCEvent(cc_number=74, value=0, channel=0, timestamp=0.1),
+            CCEvent(cc_number=7, value=64, channel=0, timestamp=0.2),
+            CCEvent(cc_number=74, value=127, channel=0, timestamp=0.3),
+        ]
+
+        result = PatternAnalyzer.detect_cc_type(events)
+
+        assert result == CCAutomationType.VOLUME_FADE
+
+    def test_resonance_threshold_at_40_returns_filter_sweep(self) -> None:
+        """Test CC71 range of exactly 40 is treated as filter sweep."""
+        events = [
+            CCEvent(cc_number=71, value=30, channel=0, timestamp=0.0),
+            CCEvent(cc_number=71, value=70, channel=0, timestamp=1.0),
+        ]
+
+        result = PatternAnalyzer.detect_cc_type(events)
+
+        assert result == CCAutomationType.FILTER_SWEEP
+
 
 class TestOptimizeEvents:
     """Tests for the optimize_events static method."""
@@ -259,6 +283,19 @@ class TestOptimizeEvents:
         assert result[1].timestamp == 0.2
         assert result[2].timestamp == 0.3
 
+    def test_interleaved_events_still_remove_same_cc_redundancy(self) -> None:
+        """Test redundancy tracking is scoped by CC/channel across interleaving."""
+        events = [
+            CCEvent(cc_number=1, value=64, channel=0, timestamp=0.0),
+            CCEvent(cc_number=2, value=10, channel=0, timestamp=0.1),
+            CCEvent(cc_number=1, value=64, channel=0, timestamp=0.2),
+            CCEvent(cc_number=2, value=20, channel=0, timestamp=0.3),
+        ]
+
+        result = PatternAnalyzer.optimize_events(events)
+
+        assert result == [events[0], events[1], events[3]]
+
 
 class TestCalculateDuration:
     """Tests for the calculate_duration static method."""
@@ -288,7 +325,6 @@ class TestCalculateDuration:
         result = PatternAnalyzer.calculate_duration(events)
 
         assert result == 2.0  # 2.5 - 0.5
-
 
 class TestFindPeakEvent:
     """Tests for the find_peak_event static method."""
