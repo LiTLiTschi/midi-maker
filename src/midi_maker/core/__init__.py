@@ -7,6 +7,7 @@ from .enums import (
     CCAutomationType,
     GateState,
 )
+from .events import CCEvent
 
 __all__ = [
     "RecordingState",
@@ -14,4 +15,5 @@ __all__ = [
     "PlaybackMode",
     "CCAutomationType",
     "GateState",
+    "CCEvent",
 ]
