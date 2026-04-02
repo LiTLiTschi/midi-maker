@@ -26,6 +26,8 @@ pip install -e ".[dev]"
 
 ## Quick Start
 
+For the current CC automation workflow, see [docs/usage.md](docs/usage.md).
+
 ```python
 from midi_maker import MidiFile, Track, Note
 
