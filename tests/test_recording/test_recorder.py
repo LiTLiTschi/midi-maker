@@ -165,6 +165,16 @@ class TestCCRecorderStopRecording:
         
         assert pattern.cc_events == []
         assert pattern.duration == 0.0
+    
+    def test_stop_recording_in_hold_mode_ends_in_stopped_state(self) -> None:
+        """stop_recording sets trigger state to STOPPED in HOLD mode."""
+        recorder = CCRecorder()
+        recorder.set_recording_mode(RecordingMode.HOLD)
+        recorder.start_recording()
+        
+        recorder.stop_recording()
+        
+        assert recorder.get_state() == RecordingState.STOPPED
 
 
 class TestCCRecorderCaptureCC:

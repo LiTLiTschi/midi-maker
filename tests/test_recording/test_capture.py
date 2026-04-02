@@ -114,6 +114,17 @@ class TestStreamCaptureCaptureCC:
         events = capture.get_events()
         assert abs(events[0].timestamp - 1.5) < 0.001
     
+    def test_capture_cc_negative_explicit_timestamp_clamps_to_zero(self) -> None:
+        """Explicit timestamps before start time are clamped to 0."""
+        capture = StreamCapture()
+        capture.start_capture()
+        
+        explicit_time = capture.start_time - 1.0  # type: ignore
+        capture.capture_cc(cc_number=10, value=127, timestamp=explicit_time)
+        
+        events = capture.get_events()
+        assert events[0].timestamp == 0.0
+    
     def test_capture_cc_multiple_events(self) -> None:
         """capture_cc records multiple events in order."""
         capture = StreamCapture()
@@ -149,6 +160,15 @@ class TestStreamCaptureCaptureCC:
         capture = StreamCapture()
         
         with pytest.raises(RuntimeError, match="not active"):
+            capture.capture_cc(1, 64)
+    
+    def test_capture_cc_raises_if_start_time_missing(self) -> None:
+        """capture_cc raises if active capture has no start time set."""
+        capture = StreamCapture()
+        capture.recording_active = True
+        capture.start_time = None
+        
+        with pytest.raises(RuntimeError, match="Start time not set"):
             capture.capture_cc(1, 64)
     
     def test_capture_cc_validates_parameters(self) -> None:

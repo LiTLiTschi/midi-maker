@@ -130,9 +130,12 @@ class CCRecorder:
         # Analyze attack/decay phases
         pattern.analyze_attack_decay()
         
-        # Update trigger handler state
+        # Update trigger handler state to reflect manual stop
         if self.trigger_handler.is_recording:
-            self.trigger_handler.handle_trigger_on()  # Toggle to STOPPED
+            if self.trigger_handler.mode == RecordingMode.HOLD:
+                self.trigger_handler.handle_trigger_off()  # HOLD: release -> STOPPED
+            else:
+                self.trigger_handler.handle_trigger_on()  # TOGGLE: press -> STOPPED
         
         # Clear current pattern ID
         self.current_pattern_id = None
