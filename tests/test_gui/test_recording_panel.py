@@ -1,11 +1,24 @@
 """Tests for dependency-free RecordingPanel state model."""
 
 from midi_maker.core import RecordingState
+from midi_maker.core.enums import RecordingMode
 from midi_maker.gui.recording_panel import RecordingPanel
 
 
 class DummyRecorder:
     """Minimal CCRecorder-compatible stub for panel tests."""
+
+
+class HoldModeRecorder:
+    """Recorder stub exposing HOLD mode."""
+
+    recording_mode = RecordingMode.HOLD
+
+
+class UnknownModeRecorder:
+    """Recorder stub exposing an unsupported mode name."""
+
+    recording_mode = type("UnknownMode", (), {"name": "LATCH"})()
 
 
 class TestRecordingPanelInit:
@@ -27,6 +40,18 @@ class TestRecordingPanelInit:
         panel = RecordingPanel(DummyRecorder())
 
         assert panel.mode_labels == ("HOLD", "TOGGLE")
+        assert panel.selected_mode_label == "TOGGLE"
+
+    def test_init_uses_recorder_recording_mode_when_supported(self) -> None:
+        """Panel defaults selection from recorder mode when available."""
+        panel = RecordingPanel(HoldModeRecorder())
+
+        assert panel.selected_mode_label == "HOLD"
+
+    def test_init_falls_back_to_toggle_for_unsupported_mode_name(self) -> None:
+        """Panel falls back to TOGGLE if recorder mode label is unknown."""
+        panel = RecordingPanel(UnknownModeRecorder())
+
         assert panel.selected_mode_label == "TOGGLE"
 
 

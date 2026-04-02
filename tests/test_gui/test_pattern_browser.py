@@ -70,3 +70,21 @@ def test_show_pattern_details_renders_concise_metadata_text() -> None:
         "Metadata: cc_number=74, source=pedal"
     )
     assert browser.info_text == expected
+
+
+def test_show_pattern_details_uses_none_for_empty_metadata() -> None:
+    """Details text renders metadata as none when metadata is empty."""
+    library = PatternLibrary()
+    library.add_pattern(
+        AutomationPattern(
+            pattern_id="plain",
+            name="Plain",
+            cc_events=[],
+            duration=0.0,
+        )
+    )
+    browser = PatternBrowser(library)
+
+    browser.show_pattern_details("plain")
+
+    assert browser.info_text.endswith("Metadata: none")

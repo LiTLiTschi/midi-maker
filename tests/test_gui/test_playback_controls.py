@@ -105,6 +105,19 @@ def test_apply_scaling_updates_scheduler_attributes_when_available() -> None:
     assert scheduler.velocity_scale == 1.75
 
 
+def test_apply_scaling_ignores_noncallable_setters_and_uses_attributes() -> None:
+    scheduler = _SchedulerWithAttributes()
+    scheduler.set_tempo_scale = "not-callable"
+    scheduler.set_velocity_scale = "not-callable"
+    controls = PlaybackControls(playback_scheduler=scheduler)
+
+    controls.apply_tempo_scaling(3.5)
+    controls.apply_velocity_scaling(1.5)
+
+    assert scheduler.tempo_scale == 3.5
+    assert scheduler.velocity_scale == 1.5
+
+
 def test_controls_work_with_existing_playback_scheduler() -> None:
     scheduler = PlaybackScheduler()
     controls = PlaybackControls(playback_scheduler=scheduler)
