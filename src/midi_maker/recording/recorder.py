@@ -7,6 +7,7 @@ and StreamCapture for complete recording lifecycle management.
 from __future__ import annotations
 
 import uuid
+import threading
 from typing import TYPE_CHECKING, Any
 
 from midi_maker.automation import AutomationPattern
@@ -58,6 +59,7 @@ class CCRecorder:
         self.stream_capture = StreamCapture(source_port)
         self.recording_mode: RecordingMode = RecordingMode.TOGGLE
         self.current_pattern_id: str | None = None
+        self._lock = threading.RLock()
         
         # Wire up trigger handler state changes to control stream capture
         self.trigger_handler.set_on_state_change(self._on_trigger_state_change)
@@ -76,20 +78,21 @@ class CCRecorder:
         Raises:
             RuntimeError: If already recording.
         """
-        if self.is_recording:
-            raise RuntimeError("Already recording")
-        
-        # Generate or use provided pattern ID
-        self.current_pattern_id = pattern_id or self._generate_pattern_id()
-        
-        # Start capture
-        self.stream_capture.start_capture()
-        
-        # Update trigger handler state manually if not driven by trigger
-        if not self.trigger_handler.is_recording:
-            self.trigger_handler.handle_trigger_on()
-        
-        return self.current_pattern_id
+        with self._lock:
+            if self.is_recording:
+                raise RuntimeError("Already recording")
+            
+            # Generate or use provided pattern ID
+            self.current_pattern_id = pattern_id or self._generate_pattern_id()
+            
+            # Start capture
+            self.stream_capture.start_capture()
+            
+            # Update trigger handler state manually if not driven by trigger
+            if not self.trigger_handler.is_recording:
+                self.trigger_handler.handle_trigger_on()
+            
+            return self.current_pattern_id
     
     def stop_recording(self, name: str | None = None) -> AutomationPattern:
         """Stop recording and return the completed pattern.
@@ -107,40 +110,38 @@ class CCRecorder:
         Raises:
             RuntimeError: If not currently recording.
         """
-        if not self.is_recording:
-            raise RuntimeError("Not recording")
-        
-        # Stop capture and get events
-        events = self.stream_capture.stop_capture()
-        
-        # Calculate duration from events
-        duration = events[-1].timestamp if events else 0.0
-        
-        # Create pattern
-        pattern_id = self.current_pattern_id or self._generate_pattern_id()
-        pattern_name = name or f"Pattern {pattern_id[:8]}"
-        
-        pattern = AutomationPattern(
-            pattern_id=pattern_id,
-            name=pattern_name,
-            cc_events=events,
-            duration=duration,
-        )
-        
-        # Analyze attack/decay phases
-        pattern.analyze_attack_decay()
-        
-        # Update trigger handler state to reflect manual stop
-        if self.trigger_handler.is_recording:
-            if self.trigger_handler.mode == RecordingMode.HOLD:
-                self.trigger_handler.handle_trigger_off()  # HOLD: release -> STOPPED
-            else:
-                self.trigger_handler.handle_trigger_on()  # TOGGLE: press -> STOPPED
-        
-        # Clear current pattern ID
-        self.current_pattern_id = None
-        
-        return pattern
+        with self._lock:
+            if not self.is_recording:
+                raise RuntimeError("Not recording")
+            
+            # Stop capture and get events
+            events = self.stream_capture.stop_capture()
+            
+            # Duration uses the last captured event timestamp. StreamCapture
+            # guarantees non-decreasing timestamps in the capture buffer.
+            duration = events[-1].timestamp if events else 0.0
+            
+            # Create pattern
+            pattern_id = self.current_pattern_id or self._generate_pattern_id()
+            pattern_name = name or f"Pattern {pattern_id[:8]}"
+            
+            pattern = AutomationPattern(
+                pattern_id=pattern_id,
+                name=pattern_name,
+                cc_events=events,
+                duration=duration,
+            )
+            
+            # Analyze attack/decay phases
+            pattern.analyze_attack_decay()
+            
+            # Use direct state transition instead of simulating trigger events.
+            self.trigger_handler.force_stop()
+            
+            # Clear current pattern ID
+            self.current_pattern_id = None
+            
+            return pattern
     
     def set_recording_mode(self, mode: RecordingMode) -> None:
         """Set the recording mode.
@@ -153,11 +154,12 @@ class CCRecorder:
         Raises:
             TypeError: If mode is not a RecordingMode enum value.
         """
-        if not isinstance(mode, RecordingMode):
-            raise TypeError(f"mode must be RecordingMode, got {type(mode).__name__}")
-        
-        self.recording_mode = mode
-        self.trigger_handler.set_mode(mode)
+        with self._lock:
+            if not isinstance(mode, RecordingMode):
+                raise TypeError(f"mode must be RecordingMode, got {type(mode).__name__}")
+            
+            self.recording_mode = mode
+            self.trigger_handler.set_mode(mode)
     
     def capture_cc(
         self,
@@ -191,13 +193,14 @@ class CCRecorder:
         
         Clears any in-progress recording and returns to IDLE state.
         """
-        if self.stream_capture.is_active:
-            # Discard events by stopping and ignoring result
-            self.stream_capture.stop_capture()
-        
-        self.stream_capture.clear()
-        self.trigger_handler.reset()
-        self.current_pattern_id = None
+        with self._lock:
+            if self.stream_capture.is_active:
+                # Discard events by stopping and ignoring result
+                self.stream_capture.stop_capture()
+            
+            self.stream_capture.clear()
+            self.trigger_handler.reset()
+            self.current_pattern_id = None
     
     def get_state(self) -> RecordingState:
         """Get the current recording state.
@@ -251,12 +254,13 @@ class CCRecorder:
             old_state: Previous recording state.
             new_state: New recording state.
         """
-        if new_state == RecordingState.RECORDING and not self.stream_capture.is_active:
-            # Start capture when trigger starts recording
-            self.current_pattern_id = self._generate_pattern_id()
-            self.stream_capture.start_capture()
-        
-        elif old_state == RecordingState.RECORDING and new_state == RecordingState.STOPPED:
-            # Stop capture when trigger stops recording
-            if self.stream_capture.is_active:
-                self.stream_capture.stop_capture()
+        with self._lock:
+            if new_state == RecordingState.RECORDING and not self.stream_capture.is_active:
+                # Start capture when trigger starts recording
+                self.current_pattern_id = self._generate_pattern_id()
+                self.stream_capture.start_capture()
+            
+            elif old_state == RecordingState.RECORDING and new_state == RecordingState.STOPPED:
+                # Stop capture when trigger stops recording
+                if self.stream_capture.is_active:
+                    self.stream_capture.stop_capture()

@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from midi_maker.automation import AutomationPattern
-from midi_maker.core import CCEvent, PlaybackMode
+from midi_maker.core import CCEvent, PlaybackMode, PlaybackError
 from midi_maker.playback import PlaybackScheduler
 
 
@@ -143,10 +143,10 @@ class TestStopPatternPlayback:
         assert playback_id not in scheduler.active_playbacks
 
     def test_raises_on_invalid_id(self) -> None:
-        """Stopping non-existent playback raises KeyError."""
+        """Stopping non-existent playback raises PlaybackError."""
         scheduler = PlaybackScheduler()
 
-        with pytest.raises(KeyError):
+        with pytest.raises(PlaybackError):
             scheduler.stop_pattern_playback("invalid-id")
 
     def test_can_stop_playback_early(self, simple_pattern: AutomationPattern) -> None:
@@ -418,17 +418,18 @@ class TestSchedulerEdgeCases:
 
         player._send_cc.assert_not_called()
 
-    def test_execute_playback_invalid_mode_is_swallowed(
+    def test_execute_playback_invalid_mode_raises_playback_error(
         self, simple_pattern: AutomationPattern
     ) -> None:
-        """Unexpected mode should not crash caller thread."""
+        """Unexpected mode raises PlaybackError."""
         scheduler = PlaybackScheduler()
         stop_event = threading.Event()
         player = Mock()
 
-        scheduler._execute_playback(
-            player=player,
-            pattern=simple_pattern,
-            mode="invalid-mode",  # type: ignore[arg-type]
-            stop_event=stop_event,
-        )
+        with pytest.raises(PlaybackError):
+            scheduler._execute_playback(
+                player=player,
+                pattern=simple_pattern,
+                mode="invalid-mode",  # type: ignore[arg-type]
+                stop_event=stop_event,
+            )

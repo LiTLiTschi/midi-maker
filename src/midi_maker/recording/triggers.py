@@ -140,6 +140,17 @@ class TriggerHandler:
         old_state = self.recording_state
         self.recording_state = RecordingState.IDLE
         self._notify_state_change(old_state, self.recording_state)
+
+    def force_stop(self) -> None:
+        """Force recording into STOPPED state when currently recording.
+
+        This provides a direct state transition API for controller code that
+        needs to stop recording without simulating a trigger press/release.
+        """
+        old_state = self.recording_state
+        if self.recording_state == RecordingState.RECORDING:
+            self.recording_state = RecordingState.STOPPED
+        self._notify_state_change(old_state, self.recording_state)
     
     def set_on_state_change(
         self,

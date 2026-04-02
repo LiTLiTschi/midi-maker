@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Dict, Optional
 
 from midi_maker.automation import AutomationPattern
-from midi_maker.core import CCEvent, PlaybackMode
+from midi_maker.core import CCEvent, PlaybackMode, PlaybackError
 from midi_maker.playback.player import AutomationPlayer, MidiOutputPort
 
 
@@ -104,8 +104,7 @@ class PlaybackScheduler:
 
         with self._lock:
             self.active_playbacks[playback_id] = state
-
-        thread.start()
+            thread.start()
 
         return playback_id
 
@@ -119,11 +118,11 @@ class PlaybackScheduler:
             playback_id: The ID returned from start_pattern_playback.
 
         Raises:
-            KeyError: If playback_id does not exist in active playbacks.
+            PlaybackError: If playback_id does not exist in active playbacks.
         """
         with self._lock:
             if playback_id not in self.active_playbacks:
-                raise KeyError(f"No active playback with id: {playback_id}")
+                raise PlaybackError(f"No active playback with id: {playback_id}")
 
             state = self.active_playbacks[playback_id]
             state.stop_event.set()
@@ -184,37 +183,25 @@ class PlaybackScheduler:
         Raises:
             ValueError: If the playback mode is not recognized.
         """
-        try:
-            if mode == PlaybackMode.FULL_SEQUENCE:
-                self._play_with_interrupt(
-                    player, pattern.cc_events, stop_event
-                )
-            elif mode == PlaybackMode.ATTACK_ONLY:
-                self._play_with_interrupt(
-                    player, pattern.attack_events, stop_event
-                )
-            elif mode == PlaybackMode.DECAY_ONLY:
-                self._play_with_interrupt(
-                    player, pattern.decay_events, stop_event
-                )
-            elif mode == PlaybackMode.SNAPSHOT:
-                # For snapshot mode, extract CC values from the last event of each CC
-                cc_values = {}
-                for event in pattern.cc_events:
-                    cc_values[event.cc_number] = event.value
-                channel = pattern.cc_events[0].channel if pattern.cc_events else 0
-                player.play_cc_snapshot(cc_values, channel)
-            elif mode == PlaybackMode.ATTACK_DECAY:
-                # ATTACK_DECAY mode requires external gate control
-                # For now, just play the full sequence
-                self._play_with_interrupt(
-                    player, pattern.cc_events, stop_event
-                )
-            else:
-                raise ValueError(f"Unsupported playback mode: {mode}")
-        except Exception:
-            # Silently handle exceptions to avoid thread crashes
-            pass
+        if mode == PlaybackMode.FULL_SEQUENCE:
+            self._play_with_interrupt(player, pattern.cc_events, stop_event)
+        elif mode == PlaybackMode.ATTACK_ONLY:
+            self._play_with_interrupt(player, pattern.attack_events, stop_event)
+        elif mode == PlaybackMode.DECAY_ONLY:
+            self._play_with_interrupt(player, pattern.decay_events, stop_event)
+        elif mode == PlaybackMode.SNAPSHOT:
+            # For snapshot mode, extract CC values from the last event of each CC
+            cc_values = {}
+            for event in pattern.cc_events:
+                cc_values[event.cc_number] = event.value
+            channel = pattern.cc_events[0].channel if pattern.cc_events else 0
+            player.play_cc_snapshot(cc_values, channel)
+        elif mode == PlaybackMode.ATTACK_DECAY:
+            # ATTACK_DECAY mode requires external gate control
+            # For now, just play the full sequence
+            self._play_with_interrupt(player, pattern.cc_events, stop_event)
+        else:
+            raise PlaybackError(f"Unsupported playback mode: {mode}")
 
     def _play_with_interrupt(
         self,
@@ -235,23 +222,23 @@ class PlaybackScheduler:
         if not events:
             return
 
-        last_timestamp = 0.0
+        playback_start = time.perf_counter()
 
         for event in events:
             if stop_event.is_set():
                 break
 
-            delay = event.timestamp - last_timestamp
-            if delay > 0:
-                # Check stop_event during sleep with small increments
-                remaining = delay
+            target_time = playback_start + event.timestamp
+            while not stop_event.is_set():
+                remaining = target_time - time.perf_counter()
+                if remaining <= 0:
+                    break
                 while remaining > 0 and not stop_event.is_set():
                     sleep_time = min(remaining, 0.01)  # Check every 10ms
                     time.sleep(sleep_time)
-                    remaining -= sleep_time
+                    remaining = target_time - time.perf_counter()
 
             if stop_event.is_set():
                 break
 
             player._send_cc(event.cc_number, event.value, event.channel)
-            last_timestamp = event.timestamp
