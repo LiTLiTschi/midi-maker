@@ -1,6 +1,5 @@
 """Tests for AutomationPlayer playback functionality."""
 
-import time
 from typing import List, Tuple
 from unittest.mock import Mock
 
@@ -143,13 +142,15 @@ class TestPlayEvents:
 
         assert received == [(74, 50, 0), (74, 100, 0), (74, 75, 0)]
 
-    def test_play_respects_timing(self) -> None:
-        """Events are delayed based on timestamps."""
+    def test_play_respects_timing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Events use positive timestamp deltas for sleeping."""
         player = AutomationPlayer()
-        timestamps: List[float] = []
-        start_time = time.time()
-        player.set_cc_output_callback(
-            lambda cc, val, ch: timestamps.append(time.time() - start_time)
+        sleep_calls: List[float] = []
+        received: List[Tuple[int, int, int]] = []
+        player.set_cc_output_callback(lambda cc, val, ch: received.append((cc, val, ch)))
+        monkeypatch.setattr(
+            "midi_maker.playback.player.time.sleep",
+            lambda delay: sleep_calls.append(delay),
         )
 
         events = [
@@ -157,17 +158,33 @@ class TestPlayEvents:
             CCEvent(cc_number=74, value=100, channel=0, timestamp=0.05),
             CCEvent(cc_number=74, value=75, channel=0, timestamp=0.1),
         ]
+        player._play_events(events)
+
+        assert sleep_calls == [0.05, 0.05]
+        assert received == [(74, 50, 0), (74, 100, 0), (74, 75, 0)]
+
+    def test_play_non_monotonic_timestamps_do_not_sleep_negative(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Negative timestamp deltas should not trigger sleep."""
+        player = AutomationPlayer()
+        sleep_calls: List[float] = []
+        received: List[Tuple[int, int, int]] = []
+        player.set_cc_output_callback(lambda cc, val, ch: received.append((cc, val, ch)))
+        monkeypatch.setattr(
+            "midi_maker.playback.player.time.sleep",
+            lambda delay: sleep_calls.append(delay),
+        )
+
+        events = [
+            CCEvent(cc_number=74, value=50, channel=0, timestamp=0.1),
+            CCEvent(cc_number=74, value=100, channel=0, timestamp=0.05),
+        ]
 
         player._play_events(events)
 
-        # First event should be immediate (within tolerance)
-        assert timestamps[0] < 0.02
-
-        # Second event should be ~50ms after first
-        assert 0.03 < timestamps[1] < 0.08
-
-        # Third event should be ~100ms after first
-        assert 0.08 < timestamps[2] < 0.15
+        assert sleep_calls == [0.1]
+        assert received == [(74, 50, 0), (74, 100, 0)]
 
 
 class TestPlayFullSequence:

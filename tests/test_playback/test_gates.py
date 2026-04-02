@@ -154,3 +154,35 @@ class TestGateProcessorGateHandling:
             (pattern, PlaybackMode.ATTACK_ONLY),
             (pattern, PlaybackMode.DECAY_ONLY),
         ]
+
+    def test_mapped_channel_without_pattern_library_returns_none(self) -> None:
+        processor = GateProcessor()
+        processor.set_pattern_for_channel(channel=1, pattern_id="missing")
+
+        on_result = processor.handle_gate_on(channel=1)
+        off_result = processor.handle_gate_off(channel=1)
+
+        assert on_result is None
+        assert off_result is None
+
+    def test_missing_pattern_lookup_returns_none(self) -> None:
+        processor = GateProcessor(pattern_library=FakePatternLibrary({}))
+        processor.set_pattern_for_channel(channel=2, pattern_id="unknown")
+
+        on_result = processor.handle_gate_on(channel=2)
+        off_result = processor.handle_gate_off(channel=2)
+
+        assert on_result is None
+        assert off_result is None
+
+    def test_returns_pattern_id_when_no_player_or_scheduler(self) -> None:
+        pattern = make_pattern()
+        library = FakePatternLibrary({pattern.pattern_id: pattern})
+        processor = GateProcessor(pattern_library=library)
+        processor.set_pattern_for_channel(channel=5, pattern_id=pattern.pattern_id)
+
+        on_result = processor.handle_gate_on(channel=5)
+        off_result = processor.handle_gate_off(channel=5)
+
+        assert on_result == pattern.pattern_id
+        assert off_result == pattern.pattern_id

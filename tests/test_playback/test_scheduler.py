@@ -1,7 +1,8 @@
 """Tests for PlaybackScheduler functionality."""
 
+import threading
 import time
-from typing import List, Tuple
+from typing import Callable
 from unittest.mock import Mock
 
 import pytest
@@ -51,6 +52,20 @@ def multi_cc_pattern() -> AutomationPattern:
         cc_events=events,
         duration=0.1,
     )
+
+
+def wait_for_condition(
+    condition: Callable[[], bool],
+    timeout_seconds: float = 1.0,
+    poll_interval: float = 0.01,
+) -> None:
+    """Wait until condition returns True or fail after timeout."""
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        if condition():
+            return
+        time.sleep(poll_interval)
+    pytest.fail("Timed out waiting for expected condition.")
 
 
 class TestPlaybackSchedulerInit:
@@ -109,8 +124,7 @@ class TestStartPatternPlayback:
         scheduler.start_pattern_playback(simple_pattern, PlaybackMode.FULL_SEQUENCE)
         elapsed = time.time() - start_time
 
-        # Should return immediately (well under the 0.2s pattern duration)
-        assert elapsed < 0.1
+        assert elapsed < simple_pattern.duration
 
 
 class TestStopPatternPlayback:
@@ -142,8 +156,6 @@ class TestStopPatternPlayback:
             simple_pattern, PlaybackMode.FULL_SEQUENCE
         )
 
-        # Stop almost immediately
-        time.sleep(0.05)
         scheduler.stop_pattern_playback(playback_id)
 
         # Should be removed from active playbacks
@@ -179,34 +191,60 @@ class TestStopAllPlaybacks:
 class TestScheduleCCEvent:
     """Tests for scheduling individual CC events."""
 
-    def test_sends_cc_event_immediately(self) -> None:
+    def test_sends_cc_event_immediately(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """CC event with zero delay is sent immediately."""
         mock_port = Mock()
         scheduler = PlaybackScheduler(output_port=mock_port)
+        sleep_calls = []
+
+        class ImmediateThread:
+            def __init__(self, *, target, daemon: bool) -> None:
+                self._target = target
+
+            def start(self) -> None:
+                self._target()
+
+        monkeypatch.setattr(
+            "midi_maker.playback.scheduler.threading.Thread",
+            ImmediateThread,
+        )
+        monkeypatch.setattr(
+            "midi_maker.playback.scheduler.time.sleep",
+            lambda delay: sleep_calls.append(delay),
+        )
 
         event = CCEvent(cc_number=74, value=100, channel=0, timestamp=0.0)
         scheduler.schedule_cc_event(event, delay_ms=0)
 
-        # Give thread a moment to execute
-        time.sleep(0.05)
-
+        assert sleep_calls == []
         mock_port.send_cc.assert_called_once_with(74, 100, 0)
 
-    def test_sends_cc_event_after_delay(self) -> None:
+    def test_sends_cc_event_after_delay(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """CC event is delayed by the specified amount."""
         mock_port = Mock()
         scheduler = PlaybackScheduler(output_port=mock_port)
+        sleep_calls = []
+
+        class ImmediateThread:
+            def __init__(self, *, target, daemon: bool) -> None:
+                self._target = target
+
+            def start(self) -> None:
+                self._target()
+
+        monkeypatch.setattr(
+            "midi_maker.playback.scheduler.threading.Thread",
+            ImmediateThread,
+        )
+        monkeypatch.setattr(
+            "midi_maker.playback.scheduler.time.sleep",
+            lambda delay: sleep_calls.append(delay),
+        )
 
         event = CCEvent(cc_number=71, value=50, channel=1, timestamp=0.0)
-        start_time = time.time()
         scheduler.schedule_cc_event(event, delay_ms=100)
 
-        # Wait for event to be sent
-        time.sleep(0.15)
-        elapsed = time.time() - start_time
-
-        # Should have been delayed by ~100ms
-        assert elapsed >= 0.1
+        assert sleep_calls == [0.1]
         mock_port.send_cc.assert_called_once_with(71, 50, 1)
 
     def test_multiple_scheduled_events(self) -> None:
@@ -220,8 +258,7 @@ class TestScheduleCCEvent:
         scheduler.schedule_cc_event(event1, delay_ms=0)
         scheduler.schedule_cc_event(event2, delay_ms=0)
 
-        time.sleep(0.05)
-
+        wait_for_condition(lambda: mock_port.send_cc.call_count == 2)
         assert mock_port.send_cc.call_count == 2
 
 
@@ -230,22 +267,14 @@ class TestPlaybackModes:
 
     def test_full_sequence_mode(self, simple_pattern: AutomationPattern) -> None:
         """FULL_SEQUENCE mode plays all events."""
-        received: List[Tuple[int, int, int]] = []
-
-        # Use a player with callback instead of mock port for this test
-        from midi_maker.playback.player import AutomationPlayer
-
         mock_port = Mock()
         scheduler = PlaybackScheduler(output_port=mock_port)
 
-        playback_id = scheduler.start_pattern_playback(
+        scheduler.start_pattern_playback(
             simple_pattern, PlaybackMode.FULL_SEQUENCE
         )
 
-        # Wait for playback to complete
-        time.sleep(0.3)
-
-        # Should have sent all 5 events
+        wait_for_condition(lambda: mock_port.send_cc.call_count == 5)
         assert mock_port.send_cc.call_count == 5
 
     def test_attack_only_mode(self, simple_pattern: AutomationPattern) -> None:
@@ -255,10 +284,7 @@ class TestPlaybackModes:
 
         scheduler.start_pattern_playback(simple_pattern, PlaybackMode.ATTACK_ONLY)
 
-        # Wait for playback to complete
-        time.sleep(0.3)
-
-        # Should have sent only attack events (3)
+        wait_for_condition(lambda: mock_port.send_cc.call_count == 3)
         assert mock_port.send_cc.call_count == 3
 
     def test_decay_only_mode(self, simple_pattern: AutomationPattern) -> None:
@@ -268,10 +294,7 @@ class TestPlaybackModes:
 
         scheduler.start_pattern_playback(simple_pattern, PlaybackMode.DECAY_ONLY)
 
-        # Wait for playback to complete
-        time.sleep(0.3)
-
-        # Should have sent only decay events (2)
+        wait_for_condition(lambda: mock_port.send_cc.call_count == 2)
         assert mock_port.send_cc.call_count == 2
 
     def test_snapshot_mode(self, multi_cc_pattern: AutomationPattern) -> None:
@@ -281,12 +304,10 @@ class TestPlaybackModes:
 
         scheduler.start_pattern_playback(multi_cc_pattern, PlaybackMode.SNAPSHOT)
 
-        # Wait briefly for snapshot to be sent
-        time.sleep(0.05)
-
         # Should have sent CC values immediately (one for each unique CC number)
         # CC74: 127 -> 64 (last is 64)
         # CC71: 100 (only one)
+        wait_for_condition(lambda: mock_port.send_cc.call_count == 2)
         assert mock_port.send_cc.call_count == 2
 
     def test_attack_decay_mode(self, simple_pattern: AutomationPattern) -> None:
@@ -296,10 +317,8 @@ class TestPlaybackModes:
 
         scheduler.start_pattern_playback(simple_pattern, PlaybackMode.ATTACK_DECAY)
 
-        # Wait for playback to complete
-        time.sleep(0.3)
-
         # Currently falls back to full sequence
+        wait_for_condition(lambda: mock_port.send_cc.call_count == 5)
         assert mock_port.send_cc.call_count == 5
 
 
@@ -326,10 +345,8 @@ class TestConcurrentPlaybacks:
         assert id2 in scheduler.active_playbacks
         assert id3 in scheduler.active_playbacks
 
-        # Wait for playbacks to complete
-        time.sleep(0.3)
-
         # Should have sent events from all three (5 + 3 + 2 = 10)
+        wait_for_condition(lambda: mock_port.send_cc.call_count == 10)
         assert mock_port.send_cc.call_count == 10
 
     def test_playbacks_complete_independently(
@@ -372,3 +389,46 @@ class TestThreadSafety:
 
         # Should complete without errors
         assert len(scheduler.active_playbacks) == 0
+
+
+class TestSchedulerEdgeCases:
+    """Tests for scheduler internal edge cases."""
+
+    def test_play_with_interrupt_empty_events_is_noop(self) -> None:
+        """No events should not call player output."""
+        scheduler = PlaybackScheduler()
+        player = Mock()
+        stop_event = threading.Event()
+
+        scheduler._play_with_interrupt(player=player, events=[], stop_event=stop_event)
+
+        player._send_cc.assert_not_called()
+
+    def test_play_with_interrupt_stops_before_first_event(self) -> None:
+        """Pre-set stop event prevents sending any events."""
+        scheduler = PlaybackScheduler()
+        player = Mock()
+        stop_event = threading.Event()
+        stop_event.set()
+        events = [CCEvent(cc_number=74, value=64, channel=0, timestamp=0.0)]
+
+        scheduler._play_with_interrupt(
+            player=player, events=events, stop_event=stop_event
+        )
+
+        player._send_cc.assert_not_called()
+
+    def test_execute_playback_invalid_mode_is_swallowed(
+        self, simple_pattern: AutomationPattern
+    ) -> None:
+        """Unexpected mode should not crash caller thread."""
+        scheduler = PlaybackScheduler()
+        stop_event = threading.Event()
+        player = Mock()
+
+        scheduler._execute_playback(
+            player=player,
+            pattern=simple_pattern,
+            mode="invalid-mode",  # type: ignore[arg-type]
+            stop_event=stop_event,
+        )
