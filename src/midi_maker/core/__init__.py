@@ -1,3 +1,17 @@
 """Core module for MIDI file operations."""
 
-__all__ = ["MidiFile", "Track", "Note"]
+from .enums import (
+    RecordingState,
+    RecordingMode,
+    PlaybackMode,
+    CCAutomationType,
+    GateState,
+)
+
+__all__ = [
+    "RecordingState",
+    "RecordingMode",
+    "PlaybackMode",
+    "CCAutomationType",
+    "GateState",
+]

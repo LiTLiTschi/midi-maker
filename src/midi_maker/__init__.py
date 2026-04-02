@@ -4,8 +4,19 @@ __version__ = "0.1.0"
 __author__ = "Your Name"
 __email__ = "your.email@example.com"
 
-from .core.midi_file import MidiFile
-from .core.track import Track
-from .core.note import Note
+# Core enums are available immediately
+from .core.enums import (
+    RecordingState,
+    RecordingMode,
+    PlaybackMode,
+    CCAutomationType,
+    GateState,
+)
 
-__all__ = ["MidiFile", "Track", "Note"]
+__all__ = [
+    "RecordingState",
+    "RecordingMode",
+    "PlaybackMode",
+    "CCAutomationType",
+    "GateState",
+]
