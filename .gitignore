@@ -174,3 +174,4 @@ cython_debug/
 # MIDI files for testing (optional - remove if you want to track MIDI files)
 # *.mid
 # *.midi
+.worktrees/
