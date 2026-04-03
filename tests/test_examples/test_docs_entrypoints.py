@@ -17,8 +17,8 @@ def test_usage_doc_references_config_required_entrypoint() -> None:
     assert "midi_maker.cli" not in usage
 
 
-def test_configs_example_exists_with_required_keys() -> None:
-    config_example = Path("configs.example").read_text(encoding="utf-8")
+def test_app_config_example_json_exists_with_required_keys() -> None:
+    config_example = Path("config.example.json").read_text(encoding="utf-8")
     assert '"ports"' in config_example
     assert '"trigger_input"' in config_example
     assert '"cc_source_input"' in config_example
