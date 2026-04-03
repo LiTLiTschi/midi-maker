@@ -55,18 +55,18 @@
 
 ```python
 def test_load_valid_config_parses_required_and_optional_fields(tmp_path):
-    cfg = load_app_config(tmp_path / "valid-config.json")
+    cfg = load_app_config(Path("tests/fixtures/config/valid-config.json"))
     assert cfg.ports.trigger_input == "Drum Pedal"
     assert cfg.default_recording_mode.name == "TOGGLE"
     assert cfg.default_channel_mappings[0] == "pattern-id-a"
 
 def test_missing_required_keys_raise_config_error(tmp_path):
     with pytest.raises(ConfigError, match="missing required keys"):
-        load_app_config(tmp_path / "missing-keys.json")
+        load_app_config(Path("tests/fixtures/config/missing-keys.json"))
 
 def test_invalid_channel_mapping_keys_raise_config_error(tmp_path):
     with pytest.raises(ConfigError, match="channel keys must be 0-15"):
-        load_app_config(tmp_path / "invalid-mappings.json")
+        load_app_config(Path("tests/fixtures/config/invalid-mappings.json"))
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
@@ -135,8 +135,9 @@ def test_start_engine_enables_processing(valid_config):
 
 def test_stop_engine_while_recording_is_blocked(valid_config):
     rt = MidiMakerRuntime.from_config(valid_config, deps=fakes(recording=True))
-    with pytest.raises(RuntimeError, match="Stop recording before stopping engine"):
-        rt.stop_engine()
+    stopped = rt.stop_engine()
+    assert stopped is False
+    assert "Stop recording before stopping engine" in rt.last_status_message
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
@@ -150,7 +151,7 @@ Implement `MidiMakerRuntime` with:
 - service composition (`CCRecorder`, `PatternLibrary`, `PlaybackScheduler`, `GateProcessor`, `SequencerInterface`)
 - `engine_running` gate
 - `start_engine()`, `stop_engine()`, `shutdown()`
-- blocking stop while recording
+- stop behavior while recording: return `False`, keep engine running, and set actionable status message
 - startup behavior for `library_path`:
   - missing file => initialize empty library
   - invalid existing file => raise fail-fast error
@@ -195,6 +196,15 @@ def test_playback_controls_channel_mapping_conversion(fake_widgets):
     controls.set_channel_mapping(ui_channel=2, pattern_id="pat-a")
     assert controls.runtime_mapping[1] == "pat-a"  # UI 2 -> runtime 1
 ```
+
+Test-double contract for GUI task:
+- define protocol-like test doubles in `tests/test_gui/fakes.py`:
+  - `FakeGuiText` with `.text` and `set_text(...)`
+  - `FakeButtonSelectorH` with selected value and on_change callback
+  - `FakeButton` with on_click callback
+  - `FakeListSelector` with items/selection
+  - `FakeProgressBarH` + `FakeSliderH` with set/get value
+- GUI modules accept widget factory/deps injection in constructors for deterministic tests.
 
 - [ ] **Step 2: Run tests to verify failure**
 
@@ -270,6 +280,11 @@ Implement in `midi_maker.app.main`:
 
 Update `pyproject.toml`:
 - point script to `midi_maker.app.main:main`
+
+midi-scripter adapter contract for this task:
+- create a thin adapter module `src/midi_maker/app/midi_scripter_api.py` that centralizes imports:
+  - `MidiIn`, `MidiOut`, `MidiType`, `start_gui`, widget classes used by GUI
+- tests monkeypatch this adapter module (not third-party package directly), so app/main tests can run without midi-scripter installed/hardware.
 
 - [ ] **Step 4: Re-run app-main tests**
 
@@ -399,14 +414,19 @@ Run:
 
 Expected: PASS
 
-- [ ] **Step 3: Manual startup smoke**
+- [ ] **Step 3: Startup smoke (CI-safe + optional hardware)**
 
-Run:
-- `python -m midi_maker.app.main --config tests/fixtures/config/valid-config.json`
+Run (CI-safe):
+- `pytest tests/test_app/test_main.py::test_main_invokes_start_gui_with_valid_config -q`
 
 Expected:
-- startup succeeds to GUI launch path
-- no config/port contract regressions in startup branch
+- startup path succeeds with mocked midi-scripter adapter + fake ports
+
+Optional local hardware smoke (manual):
+- `python -m midi_maker.app.main --config /path/to/real-rig-config.json`
+
+Expected:
+- app reaches real GUI launch with resolved hardware ports
 
 - [ ] **Step 4: Final cleanup commit (only if needed)**
 
@@ -431,4 +451,3 @@ Include:
 - Maintain TDD discipline per task (failing test -> minimal implementation -> passing test -> commit)
 - Keep changes DRY and avoid speculative features outside this spec
 - Use one focused commit per task to simplify review and rollback
-
