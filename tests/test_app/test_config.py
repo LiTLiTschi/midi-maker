@@ -102,3 +102,9 @@ def test_unreadable_json_raises_config_error(tmp_path: Path) -> None:
 
     with pytest.raises(ConfigError, match="Could not read config file"):
         load_app_config(unreadable)
+
+
+def test_channel_mappings_are_immutable() -> None:
+    cfg = load_app_config(fixture_path("valid-config.json"))
+    with pytest.raises(TypeError):
+        cfg.default_channel_mappings[0] = "new-pattern"  # type: ignore[index]

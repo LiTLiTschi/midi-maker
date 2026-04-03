@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from pathlib import Path
+from types import MappingProxyType
 from typing import Dict, Mapping
 
 from midi_maker.core import RecordingMode
@@ -31,7 +32,7 @@ class AppConfig:
     ports: PortConfig
     library_path: Path
     default_recording_mode: RecordingMode
-    default_channel_mappings: Dict[int, str]
+    default_channel_mappings: Mapping[int, str]
     config_dir: Path
 
 
@@ -144,7 +145,7 @@ def _parse_recording_mode(payload: Mapping[str, object]) -> RecordingMode:
         ) from exc
 
 
-def _parse_channel_mappings(payload: Mapping[str, object]) -> Dict[int, str]:
+def _parse_channel_mappings(payload: Mapping[str, object]) -> Mapping[int, str]:
     mappings_value = payload.get("default_channel_mappings", {})
     if not isinstance(mappings_value, dict):
         raise ConfigError("Config key 'default_channel_mappings' must be an object")
@@ -175,7 +176,7 @@ def _parse_channel_mappings(payload: Mapping[str, object]) -> Dict[int, str]:
 
         mappings[channel] = pattern_id
 
-    return mappings
+    return MappingProxyType(mappings)
 
 
 def _resolve_library_path(config_path: Path, library_path: str) -> Path:
