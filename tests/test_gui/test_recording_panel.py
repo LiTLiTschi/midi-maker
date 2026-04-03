@@ -1,104 +1,99 @@
-"""Tests for dependency-free RecordingPanel state model."""
+"""Tests for RecordingPanel GUI widget adapter behavior."""
 
-from midi_maker.core import RecordingState
-from midi_maker.core.enums import RecordingMode
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+import sys
+
+from midi_maker.core import RecordingMode, RecordingState
 from midi_maker.gui.recording_panel import RecordingPanel
 
-
-class DummyRecorder:
-    """Minimal CCRecorder-compatible stub for panel tests."""
-
-
-class HoldModeRecorder:
-    """Recorder stub exposing HOLD mode."""
-
-    recording_mode = RecordingMode.HOLD
+sys.path.append(str(Path(__file__).parent))
+from fakes import FakeButtonSelectorH, FakeGuiText, FakeProgressBarH
 
 
-class UnknownModeRecorder:
-    """Recorder stub exposing an unsupported mode name."""
-
-    recording_mode = type("UnknownMode", (), {"name": "LATCH"})()
-
-
-class TestRecordingPanelInit:
-    """Tests for RecordingPanel initialization."""
-
-    def test_init_stores_recorder_and_defaults(self) -> None:
-        """Panel stores recorder and initializes default visual state."""
-        recorder = DummyRecorder()
-
-        panel = RecordingPanel(recorder)
-
-        assert panel.cc_recorder is recorder
-        assert panel.recording_status == RecordingState.IDLE
-        assert panel.recording_indicator_text == "IDLE"
-        assert panel.input_level == 0
-
-    def test_init_has_mode_selection_labels(self) -> None:
-        """Panel exposes HOLD/TOGGLE mode labels and default selection."""
-        panel = RecordingPanel(DummyRecorder())
-
-        assert panel.mode_labels == ("HOLD", "TOGGLE")
-        assert panel.selected_mode_label == "TOGGLE"
-
-    def test_init_uses_recorder_recording_mode_when_supported(self) -> None:
-        """Panel defaults selection from recorder mode when available."""
-        panel = RecordingPanel(HoldModeRecorder())
-
-        assert panel.selected_mode_label == "HOLD"
-
-    def test_init_falls_back_to_toggle_for_unsupported_mode_name(self) -> None:
-        """Panel falls back to TOGGLE if recorder mode label is unknown."""
-        panel = RecordingPanel(UnknownModeRecorder())
-
-        assert panel.selected_mode_label == "TOGGLE"
+@dataclass
+class RecordingWidgets:
+    status: FakeGuiText
+    mode: FakeButtonSelectorH
+    level: FakeProgressBarH
 
 
-class TestRecordingPanelStatusUpdates:
-    """Tests for status text updates."""
+class FakeRecorder:
+    def __init__(self, mode: RecordingMode = RecordingMode.TOGGLE) -> None:
+        self.recording_mode = mode
+        self.set_mode_calls: list[RecordingMode] = []
 
-    def test_update_recording_status_updates_state_and_text(self) -> None:
-        """Status updates replace current state and status label."""
-        panel = RecordingPanel(DummyRecorder())
-
-        panel.update_recording_status(RecordingState.RECORDING)
-
-        assert panel.recording_status == RecordingState.RECORDING
-        assert panel.recording_indicator_text == "RECORDING"
-
-    def test_update_recording_status_handles_stopped(self) -> None:
-        """STOPPED state maps to STOPPED indicator text."""
-        panel = RecordingPanel(DummyRecorder())
-
-        panel.update_recording_status(RecordingState.STOPPED)
-
-        assert panel.recording_indicator_text == "STOPPED"
+    def set_recording_mode(self, mode: RecordingMode) -> None:
+        self.recording_mode = mode
+        self.set_mode_calls.append(mode)
 
 
-class TestRecordingPanelInputLevel:
-    """Tests for input level normalization and clamping."""
+def make_widgets() -> RecordingWidgets:
+    return RecordingWidgets(
+        status=FakeGuiText(),
+        mode=FakeButtonSelectorH(options=("HOLD", "TOGGLE"), selected="TOGGLE"),
+        level=FakeProgressBarH(),
+    )
 
-    def test_update_input_level_keeps_value_within_range(self) -> None:
-        """Values within MIDI range are stored unchanged."""
-        panel = RecordingPanel(DummyRecorder())
 
-        panel.update_input_level(64)
+def test_recording_panel_updates_status_widget() -> None:
+    recorder = FakeRecorder()
+    widgets = make_widgets()
+    panel = RecordingPanel(cc_recorder=recorder, widgets=widgets)
 
-        assert panel.input_level == 64
+    panel.update_recording_status(RecordingState.RECORDING)
 
-    def test_update_input_level_clamps_below_zero(self) -> None:
-        """Values below 0 are clamped to 0."""
-        panel = RecordingPanel(DummyRecorder())
+    assert panel.recording_status == RecordingState.RECORDING
+    assert widgets.status.text == "RECORDING"
 
-        panel.update_input_level(-15)
 
-        assert panel.input_level == 0
+def test_recording_panel_updates_recent_level_indicator() -> None:
+    panel = RecordingPanel(cc_recorder=FakeRecorder(), widgets=make_widgets())
 
-    def test_update_input_level_clamps_above_127(self) -> None:
-        """Values above 127 are clamped to 127."""
-        panel = RecordingPanel(DummyRecorder())
+    panel.update_input_level(96)
 
-        panel.update_input_level(255)
+    assert panel.input_level == 96
+    assert panel.level_widget.value == 96
 
-        assert panel.input_level == 127
+
+def test_recording_panel_clamps_recent_level_indicator() -> None:
+    panel = RecordingPanel(cc_recorder=FakeRecorder(), widgets=make_widgets())
+
+    panel.update_input_level(255)
+    assert panel.level_widget.value == 127
+
+    panel.update_input_level(-2)
+    assert panel.level_widget.value == 0
+
+
+def test_recording_panel_defaults_mode_selector_from_recorder() -> None:
+    widgets = make_widgets()
+    panel = RecordingPanel(cc_recorder=FakeRecorder(RecordingMode.HOLD), widgets=widgets)
+
+    assert panel.selected_mode_label == "HOLD"
+    assert widgets.mode.selected == "HOLD"
+
+
+def test_recording_panel_handles_hold_toggle_mode_changes() -> None:
+    recorder = FakeRecorder()
+    widgets = make_widgets()
+    panel = RecordingPanel(cc_recorder=recorder, widgets=widgets)
+
+    widgets.mode.trigger_change("HOLD")
+
+    assert panel.selected_mode_label == "HOLD"
+    assert recorder.recording_mode == RecordingMode.HOLD
+    assert recorder.set_mode_calls == [RecordingMode.HOLD]
+
+
+def test_recording_panel_ignores_unknown_mode_changes() -> None:
+    recorder = FakeRecorder()
+    widgets = make_widgets()
+    panel = RecordingPanel(cc_recorder=recorder, widgets=widgets)
+
+    widgets.mode.trigger_change("LATCH")
+
+    assert panel.selected_mode_label == "TOGGLE"
+    assert recorder.set_mode_calls == []

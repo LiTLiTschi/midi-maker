@@ -1,129 +1,123 @@
-"""Tests for GUI playback control model."""
+"""Tests for PlaybackControls GUI widget adapter behavior."""
 
-from typing import Optional
+from __future__ import annotations
 
-import pytest
-
-from midi_maker.playback.scheduler import PlaybackScheduler
+from dataclasses import dataclass
+from pathlib import Path
+import sys
 
 from midi_maker.gui.playback_controls import PlaybackControls
 
+sys.path.append(str(Path(__file__).parent))
+from fakes import FakeButton, FakeButtonSelectorH, FakeSliderH
 
-class _SchedulerWithSetters:
+
+@dataclass
+class PlaybackWidgets:
+    tempo: FakeSliderH
+    velocity: FakeSliderH
+    channel: FakeButtonSelectorH
+    pattern: FakeButtonSelectorH
+    clear_mapping: FakeButton
+    start_engine: FakeButton
+    stop_engine: FakeButton
+
+
+class FakeScheduler:
     def __init__(self) -> None:
-        self.last_tempo_scale: Optional[float] = None
-        self.last_velocity_scale: Optional[float] = None
+        self.tempo_scale: float = 1.0
+        self.velocity_scale: float = 1.0
+        self.channel_mapping: dict[int, str] = {}
 
     def set_tempo_scale(self, value: float) -> None:
-        self.last_tempo_scale = value
+        self.tempo_scale = value
 
     def set_velocity_scale(self, value: float) -> None:
-        self.last_velocity_scale = value
+        self.velocity_scale = value
 
 
-class _SchedulerWithAttributes:
+class FakeSequencer:
     def __init__(self) -> None:
-        self.tempo_scale: Optional[float] = None
-        self.velocity_scale: Optional[float] = None
+        self.mapped: list[tuple[int, str]] = []
+        self.unmapped: list[int] = []
+
+    def map_pattern_to_channel(self, channel: int, pattern_id: str) -> None:
+        self.mapped.append((channel, pattern_id))
+
+    def unmap_channel(self, channel: int) -> None:
+        self.unmapped.append(channel)
 
 
-def test_init_sets_defaults() -> None:
-    scheduler = object()
-    controls = PlaybackControls(playback_scheduler=scheduler)
-
-    assert controls.playback_scheduler is scheduler
-    assert controls.tempo_scale == 1.0
-    assert controls.velocity_scale == 1.0
-    assert isinstance(controls.channel_mapping, dict)
-    assert controls.channel_mapping == {}
-
-
-def test_init_reuses_scheduler_channel_mapping_if_present() -> None:
-    scheduler = type("Scheduler", (), {})()
-    scheduler.channel_mapping = {1: "kick"}
-
-    controls = PlaybackControls(playback_scheduler=scheduler)
-
-    assert controls.channel_mapping is scheduler.channel_mapping
+def make_widgets() -> PlaybackWidgets:
+    return PlaybackWidgets(
+        tempo=FakeSliderH(1.0),
+        velocity=FakeSliderH(1.0),
+        channel=FakeButtonSelectorH(options=tuple(str(i) for i in range(1, 17)), selected="1"),
+        pattern=FakeButtonSelectorH(options=("pat-a", "pat-b"), selected="pat-a"),
+        clear_mapping=FakeButton(),
+        start_engine=FakeButton(),
+        stop_engine=FakeButton(),
+    )
 
 
-@pytest.mark.parametrize(
-    ("input_value", "expected_value"),
-    [
-        (0.05, 0.1),
-        (1.0, 1.0),
-        (8.0, 4.0),
-    ],
-)
-def test_apply_tempo_scaling_clamps_and_stores(
-    input_value: float, expected_value: float
-) -> None:
-    controls = PlaybackControls(playback_scheduler=object())
+def test_playback_controls_apply_scaling_from_slider_callbacks() -> None:
+    scheduler = FakeScheduler()
+    controls = PlaybackControls(playback_scheduler=scheduler, widgets=make_widgets())
 
-    controls.apply_tempo_scaling(input_value)
+    controls.tempo_slider.trigger_change(2.5)
+    controls.velocity_slider.trigger_change(0.2)
 
-    assert controls.tempo_scale == expected_value
+    assert controls.tempo_scale == 2.5
+    assert controls.velocity_scale == 0.2
+    assert scheduler.tempo_scale == 2.5
+    assert scheduler.velocity_scale == 0.2
 
 
-@pytest.mark.parametrize(
-    ("input_value", "expected_value"),
-    [
-        (-0.5, 0.0),
-        (1.25, 1.25),
-        (8.0, 2.0),
-    ],
-)
-def test_apply_velocity_scaling_clamps_and_stores(
-    input_value: float, expected_value: float
-) -> None:
-    controls = PlaybackControls(playback_scheduler=object())
+def test_playback_controls_channel_mapping_conversion() -> None:
+    scheduler = FakeScheduler()
+    sequencer = FakeSequencer()
+    controls = PlaybackControls(
+        playback_scheduler=scheduler,
+        sequencer_interface=sequencer,
+        widgets=make_widgets(),
+    )
 
-    controls.apply_velocity_scaling(input_value)
+    controls.set_channel_mapping(ui_channel=2, pattern_id="pat-a")
 
-    assert controls.velocity_scale == expected_value
+    assert controls.runtime_mapping[1] == "pat-a"
+    assert sequencer.mapped == [(1, "pat-a")]
 
 
-def test_apply_scaling_calls_scheduler_setters_when_available() -> None:
-    scheduler = _SchedulerWithSetters()
-    controls = PlaybackControls(playback_scheduler=scheduler)
+def test_playback_controls_clear_mapping_surface() -> None:
+    scheduler = FakeScheduler()
+    sequencer = FakeSequencer()
+    widgets = make_widgets()
+    controls = PlaybackControls(
+        playback_scheduler=scheduler,
+        sequencer_interface=sequencer,
+        widgets=widgets,
+    )
+    controls.set_channel_mapping(ui_channel=3, pattern_id="pat-b")
 
-    controls.apply_tempo_scaling(9.0)
-    controls.apply_velocity_scaling(-2.0)
+    widgets.channel.set_selected("3")
+    widgets.clear_mapping.click()
 
-    assert scheduler.last_tempo_scale == 4.0
-    assert scheduler.last_velocity_scale == 0.0
-
-
-def test_apply_scaling_updates_scheduler_attributes_when_available() -> None:
-    scheduler = _SchedulerWithAttributes()
-    controls = PlaybackControls(playback_scheduler=scheduler)
-
-    controls.apply_tempo_scaling(0.25)
-    controls.apply_velocity_scaling(1.75)
-
-    assert scheduler.tempo_scale == 0.25
-    assert scheduler.velocity_scale == 1.75
+    assert 2 not in controls.runtime_mapping
+    assert sequencer.unmapped == [2]
 
 
-def test_apply_scaling_ignores_noncallable_setters_and_uses_attributes() -> None:
-    scheduler = _SchedulerWithAttributes()
-    scheduler.set_tempo_scale = "not-callable"
-    scheduler.set_velocity_scale = "not-callable"
-    controls = PlaybackControls(playback_scheduler=scheduler)
+def test_playback_controls_engine_start_stop_callbacks() -> None:
+    scheduler = FakeScheduler()
+    widgets = make_widgets()
+    calls = {"start": 0, "stop": 0}
+    controls = PlaybackControls(
+        playback_scheduler=scheduler,
+        widgets=widgets,
+        on_start_engine=lambda: calls.__setitem__("start", calls["start"] + 1),
+        on_stop_engine=lambda: calls.__setitem__("stop", calls["stop"] + 1),
+    )
 
-    controls.apply_tempo_scaling(3.5)
-    controls.apply_velocity_scaling(1.5)
+    widgets.start_engine.click()
+    widgets.stop_engine.click()
 
-    assert scheduler.tempo_scale == 3.5
-    assert scheduler.velocity_scale == 1.5
-
-
-def test_controls_work_with_existing_playback_scheduler() -> None:
-    scheduler = PlaybackScheduler()
-    controls = PlaybackControls(playback_scheduler=scheduler)
-
-    controls.apply_tempo_scaling(1.5)
-    controls.apply_velocity_scaling(0.8)
-
-    assert controls.tempo_scale == 1.5
-    assert controls.velocity_scale == 0.8
+    assert calls == {"start": 1, "stop": 1}
