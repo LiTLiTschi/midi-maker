@@ -1,104 +1,103 @@
 # Usage Guide
 
-This guide covers setup and the CC automation workflow implemented in this repository.
+This guide covers the runnable midi-scripter app path and the supporting CC automation workflow.
 
-## Installation and setup
-
-From the repository root:
+## Install
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
 pip install --upgrade pip
 pip install -e ".[dev]"
+pip install midi-scripter
 ```
 
-`-e` installs the package in editable mode, and `[dev]` adds development tools (including `pytest`, `black`, `mypy`, and `isort`).
+## Launch the app
 
-## Core concepts
+Startup requires a config file and fails fast on invalid config or unresolved ports.
 
-### Recording
+```bash
+midi-maker --config /path/to/config.json
+```
 
-Use `CCRecorder` to capture CC automation:
+Equivalent module run:
 
-- `start_recording(pattern_id=...)` begins capture
-- `capture_cc(...)` appends CC events while recording
-- `stop_recording(name=...)` returns an `AutomationPattern`
+```bash
+python -m midi_maker.app.main --config /path/to/config.json
+```
 
-Relevant module: `midi_maker.recording`.
+## Config schema
 
-### Automation patterns
+Required keys:
 
-`AutomationPattern` stores captured `CCEvent`s plus metadata.
+- `ports.trigger_input` (string)
+- `ports.cc_source_input` (string)
+- `ports.sequencer_input` (string)
+- `ports.daw_output` (string)
+- `library_path` (string)
 
-- `analyze_attack_decay()` splits events into `attack_events` and `decay_events`
-- `PatternLibrary` stores patterns in memory and can save/load JSON libraries
+Optional keys:
 
-Relevant module: `midi_maker.automation`.
+- `default_recording_mode`: `"HOLD"` or `"TOGGLE"` (default `"TOGGLE"`)
+- `default_channel_mappings`: object of string channel keys `"0"`..`"15"` to pattern IDs
 
-### Playback
+Example:
 
-Use `AutomationPlayer` for direct playback and `PlaybackScheduler` for threaded/scheduled playback.
+```json
+{
+  "ports": {
+    "trigger_input": "Drum Pedal",
+    "cc_source_input": "MIDI Controller",
+    "sequencer_input": "MPD232",
+    "daw_output": "To DAW"
+  },
+  "library_path": "patterns/library.json",
+  "default_recording_mode": "TOGGLE",
+  "default_channel_mappings": {
+    "0": "filter-a",
+    "1": "filter-b"
+  }
+}
+```
 
-Playback behavior is controlled with `PlaybackMode` (for example: `FULL_SEQUENCE`, `ATTACK_ONLY`, `DECAY_ONLY`, `SNAPSHOT`).
+Semantics:
 
-Relevant module: `midi_maker.playback`.
+- Relative `library_path` resolves from the config file directory.
+- Missing library file starts as empty library.
+- Existing but invalid library file fails startup.
+- Mapping entries with missing pattern IDs are warned and skipped.
 
-### Sequencer integration
+## Runtime behavior
 
-`SequencerInterface` maps channels to pattern IDs and forwards note gate events:
+- `start_engine()` enables event processing.
+- While stopped, subscribed MIDI callbacks do nothing.
+- `stop_engine()` returns `False` while recording and keeps the engine running.
 
-- note-on (`handle_note_on`) triggers attack playback
-- note-off (`handle_note_off`) triggers decay playback
+## Channel numbering
 
-`GateProcessor` resolves mapped patterns and triggers the configured player/scheduler.
+- Runtime/config channels: `0..15`
+- UI channels in playback controls: `1..16`
+- Conversion rule: `runtime_channel = ui_channel - 1`
 
-Relevant modules: `midi_maker.patterns`, `midi_maker.playback.gates`.
+## Library and playback workflow
 
-## Basic workflow (examples)
+1. Trigger recording and capture CC events.
+2. Save to pattern library.
+3. Map a sequencer channel to the saved pattern.
+4. Note-on triggers attack playback; note-off triggers decay playback.
 
-### 1) Record + play back a pattern
-
-Run:
+## Console examples
 
 ```bash
 python examples/basic_recording_playback.py
-```
-
-This example (`examples/basic_recording_playback.py`) demonstrates:
-
-1. Creating a `CCRecorder`
-2. Starting recording (`start_recording`)
-3. Capturing CC values with `capture_cc`
-4. Stopping recording to produce an `AutomationPattern`
-5. Playing the full sequence via `AutomationPlayer.play_full_sequence`
-
-### 2) Sequencer-driven attack/decay playback
-
-Run:
-
-```bash
 python examples/sequencer_integration.py
 ```
 
-This example (`examples/sequencer_integration.py`) demonstrates:
-
-1. Building/storing a pattern in `PatternLibrary`
-2. Creating `PlaybackScheduler`, `GateProcessor`, and `SequencerInterface`
-3. Mapping a channel to a pattern ID (`map_pattern_to_channel`)
-4. Triggering attack on gate open (`handle_note_on`)
-5. Triggering decay on gate close (`handle_note_off`)
-
-## Running tests
-
-Run the full suite:
+## Test commands
 
 ```bash
 pytest -q
-```
-
-Run example smoke tests only:
-
-```bash
-pytest tests/test_examples -q
+pytest tests/test_app -q
+pytest tests/test_gui -q
+pytest tests/integration/test_midi_scripter_workflow.py -q
 ```
