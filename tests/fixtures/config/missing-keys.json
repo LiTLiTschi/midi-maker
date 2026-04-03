@@ -1,0 +1,7 @@
+{
+  "ports": {
+    "trigger_input": "Drum Pedal",
+    "sequencer_input": "MPD232",
+    "daw_output": "To DAW"
+  }
+}
