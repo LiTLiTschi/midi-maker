@@ -70,6 +70,32 @@ Reuse current backend implementation as-is where possible:
 - Playback: `AutomationPlayer`, `PlaybackScheduler`, `GateProcessor`
 - Patterns: `GateStateMachine`, `SequencerInterface`
 
+### 4. midi-scripter integration contract (normative for pass one)
+
+The pass-one implementation assumes and targets these midi-scripter APIs:
+
+- `MidiIn(name: str)` for named input ports
+- `MidiOut(name: str, virtual: bool = False)` for output ports
+- `MidiType` values used in subscriptions:
+  - `MidiType.NOTE_ON`
+  - `MidiType.NOTE_OFF`
+  - `MidiType.CONTROL_CHANGE`
+- `@port.subscribe(MidiType.XXX)` decorator for event handlers
+- `start_gui()` to launch the UI/event loop
+
+Expected message fields used by handlers:
+
+- note events: `msg.channel`, `msg.data1` (note), `msg.data2` (velocity)
+- CC events: `msg.channel`, `msg.data1` (cc_number), `msg.data2` (value), `msg.ctime`
+
+Widget contract to target in GUI modules (from original design baseline):
+
+- status text: `GuiText`
+- mode/button controls: `GuiButtonSelectorH`, `GuiButton`
+- value display controls: `GuiProgressBarH`, `GuiSliderH`
+- list/select controls: `GuiListSelector`
+- grouping/layout: `GuiWidgetLayout`
+
 ## Runtime Data Flow
 
 ### Startup
@@ -189,6 +215,10 @@ Channel mapping persistence in pass one:
 - Runtime mapping edits are **in-memory only** for pass one (no automatic writeback to config).
 - UI displays channels as **1..16**, while runtime/config use canonical **0..15**.
   Conversion rule: `ui_channel = runtime_channel + 1`, `runtime_channel = ui_channel - 1`.
+- If a mapping references a pattern ID not present in the loaded library at startup:
+  - warn in status/log output
+  - skip that mapping
+  - continue startup (no fail-fast)
 
 ## Error Handling Strategy
 
@@ -200,11 +230,13 @@ Channel mapping persistence in pass one:
 - Configured MIDI ports not found -> immediate exit listing unresolved names and available ports.
 - If `library_path` file does not exist, initialize an empty in-memory library and create the file on first successful save.
 - If `library_path` exists but is unreadable/invalid JSON, fail fast with clear parse error details.
+- Relative `library_path` values are resolved relative to the **config file directory** (not process CWD).
 
 ### Runtime behavior
 
 - Runtime MIDI send/port errors surface via visible status + logging.
 - Engine Stop performs reversible runtime halt:
+  - if currently recording, do **not** stop engine; show actionable status: \"Stop recording before stopping engine.\"
   - stop all active playbacks
   - reset transient in-flight runtime actions
   - keep ports and GUI alive for next Start
