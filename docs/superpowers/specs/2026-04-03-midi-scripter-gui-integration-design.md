@@ -162,8 +162,8 @@ Minimum required keys:
   "library_path": "patterns.json",
   "default_recording_mode": "TOGGLE",
   "default_channel_mappings": {
-    "1": "pattern-id-a",
-    "2": "pattern-id-b"
+    "0": "pattern-id-a",
+    "1": "pattern-id-b"
   }
 }
 ```
@@ -187,6 +187,8 @@ Channel mapping persistence in pass one:
 
 - Default channel mappings may be loaded from config at startup.
 - Runtime mapping edits are **in-memory only** for pass one (no automatic writeback to config).
+- UI displays channels as **1..16**, while runtime/config use canonical **0..15**.
+  Conversion rule: `ui_channel = runtime_channel + 1`, `runtime_channel = ui_channel - 1`.
 
 ## Error Handling Strategy
 
@@ -196,6 +198,8 @@ Channel mapping persistence in pass one:
 - Config file missing/unreadable/invalid format -> immediate exit with clear reason.
 - Missing required config keys -> immediate exit listing all missing keys.
 - Configured MIDI ports not found -> immediate exit listing unresolved names and available ports.
+- If `library_path` file does not exist, initialize an empty in-memory library and create the file on first successful save.
+- If `library_path` exists but is unreadable/invalid JSON, fail fast with clear parse error details.
 
 ### Runtime behavior
 
