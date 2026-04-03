@@ -17,6 +17,7 @@
 - `src/midi_maker/app/config.py` — config dataclasses + JSON loading/validation
 - `src/midi_maker/app/runtime.py` — runtime composition and lifecycle coordination
 - `src/midi_maker/app/main.py` — CLI/entrypoint (`--config`) and GUI launch
+- `src/midi_maker/app/midi_scripter_api.py` — centralized midi-scripter import/adapter boundary
 - `tests/test_app/test_config.py` — config parser/validator tests
 - `tests/test_app/test_runtime.py` — runtime lifecycle + wiring tests
 - `tests/test_app/test_main.py` — startup/fail-fast entrypoint tests
@@ -67,6 +68,12 @@ def test_missing_required_keys_raise_config_error(tmp_path):
 def test_invalid_channel_mapping_keys_raise_config_error(tmp_path):
     with pytest.raises(ConfigError, match="channel keys must be 0-15"):
         load_app_config(Path("tests/fixtures/config/invalid-mappings.json"))
+
+def test_malformed_json_raises_config_error(tmp_path):
+    bad = tmp_path / "bad.json"
+    bad.write_text("{not valid json")
+    with pytest.raises(ConfigError, match="invalid JSON"):
+        load_app_config(bad)
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
@@ -99,6 +106,7 @@ Implement:
 - optional defaults (`TOGGLE`, empty mapping)
 - channel key coercion from `"0"`..`"15"` to `int`
 - resolve relative `library_path` against config-file directory
+- malformed/unreadable JSON -> fail-fast `ConfigError` with actionable message
 
 - [ ] **Step 4: Re-run tests**
 
@@ -138,6 +146,10 @@ def test_stop_engine_while_recording_is_blocked(valid_config):
     stopped = rt.stop_engine()
     assert stopped is False
     assert "Stop recording before stopping engine" in rt.last_status_message
+
+def test_unresolved_ports_fail_fast_with_available_ports(valid_config):
+    with pytest.raises(RuntimeError, match="available ports"):
+        MidiMakerRuntime.from_config(valid_config, deps=fakes(available_ports=["Known A", "Known B"]))
 ```
 
 - [ ] **Step 2: Run tests to verify failure**
@@ -155,6 +167,7 @@ Implement `MidiMakerRuntime` with:
 - startup behavior for `library_path`:
   - missing file => initialize empty library
   - invalid existing file => raise fail-fast error
+- unresolved configured MIDI ports => fail-fast error listing missing names and available names
 - default mapping load with warn-and-skip for missing pattern IDs
 
 - [ ] **Step 4: Re-run runtime tests**
@@ -191,6 +204,11 @@ def test_recording_panel_updates_status_widget(fake_widgets):
     panel.update_recording_status(RecordingState.RECORDING)
     assert "RECORDING" in fake_widgets.status.text
 
+def test_recording_panel_updates_recent_level_indicator(fake_widgets):
+    panel = RecordingPanel(cc_recorder=fake_recorder(), widgets=fake_widgets)
+    panel.update_input_level(96)
+    assert fake_widgets.level.value == 96
+
 def test_playback_controls_channel_mapping_conversion(fake_widgets):
     controls = PlaybackControls(playback_scheduler=fake_scheduler(), widgets=fake_widgets)
     controls.set_channel_mapping(ui_channel=2, pattern_id="pat-a")
@@ -221,6 +239,7 @@ Implement each class as:
 Required controls:
 - recording status
 - HOLD/TOGGLE
+- recent-event level indicator
 - pattern save/load/select
 - channel mapping + clear mapping
 - start/stop engine actions
@@ -243,6 +262,7 @@ git commit -m "refactor(gui): bind gui modules to midi-scripter widget adapters"
 
 **Files:**
 - Create: `src/midi_maker/app/main.py`
+- Create: `src/midi_maker/app/midi_scripter_api.py`
 - Modify: `pyproject.toml`
 - Create: `tests/test_app/test_main.py`
 
@@ -280,6 +300,7 @@ Implement in `midi_maker.app.main`:
 
 Update `pyproject.toml`:
 - point script to `midi_maker.app.main:main`
+- add/install midi-scripter dependency if available from index; if not available, implement guarded import path through `midi_scripter_api.py` with clear runtime install error.
 
 midi-scripter adapter contract for this task:
 - create a thin adapter module `src/midi_maker/app/midi_scripter_api.py` that centralizes imports:
@@ -294,7 +315,7 @@ Expected: PASS
 - [ ] **Step 5: Commit**
 
 ```bash
-git add src/midi_maker/app/main.py pyproject.toml tests/test_app/test_main.py
+git add src/midi_maker/app/main.py src/midi_maker/app/midi_scripter_api.py pyproject.toml tests/test_app/test_main.py
 git commit -m "feat(app): add midi-scripter entrypoint and event subscriptions"
 ```
 
