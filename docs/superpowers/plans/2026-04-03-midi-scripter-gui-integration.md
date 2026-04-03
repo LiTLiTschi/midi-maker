@@ -10,6 +10,19 @@
 
 ---
 
+## Adapter Contract (must exist before runtime wiring)
+
+`src/midi_maker/app/midi_scripter_api.py` must expose:
+
+- `MidiIn`, `MidiOut`, `MidiType`, `start_gui`
+- GUI widget symbols used by refactored GUI classes
+- `list_input_ports() -> list[str]`
+- `list_output_ports() -> list[str]`
+
+Port-listing fallback behavior:
+- If midi-scripter exposes native listing APIs, use them.
+- Otherwise return an empty list and include `"available ports unavailable"` text in fail-fast diagnostics.
+
 ## File Structure
 
 ### New files
