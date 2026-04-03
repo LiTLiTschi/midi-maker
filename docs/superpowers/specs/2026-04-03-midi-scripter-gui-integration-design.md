@@ -92,6 +92,15 @@ Reuse current backend implementation as-is where possible:
 7. Register midi-scripter subscriptions.
 8. Start GUI loop via `start_gui()`.
 
+### Engine Start/Stop lifecycle (clarified)
+
+- Runtime initializes all services and port handles at startup, but **event processing is gated by an `engine_running` flag**.
+- Before pressing **Start Engine**:
+  - Subscriptions may be registered, but handlers return immediately while engine is not running.
+  - No recording/playback side effects occur.
+- Pressing **Start Engine** sets `engine_running=True` and enables live processing.
+- Pressing **Stop Engine** sets `engine_running=False`, stops active playbacks, and prevents new recording/playback actions until restarted.
+
 ### Recording flow
 
 1. Pedal NOTE_ON / NOTE_OFF events route to trigger handling.
@@ -131,6 +140,14 @@ Reuse current backend implementation as-is where possible:
 
 Required file via `--config`.
 
+Format for pass one: **JSON**.
+
+Invocation example:
+
+```bash
+python -m midi_maker.app.main --config /path/to/midi-maker.config.json
+```
+
 Minimum required keys:
 
 - Trigger input port name
@@ -143,6 +160,11 @@ Optional keys (if included in pass one):
 
 - default recording mode
 - default channel mappings
+
+Channel mapping persistence in pass one:
+
+- Default channel mappings may be loaded from config at startup.
+- Runtime mapping edits are **in-memory only** for pass one (no automatic writeback to config).
 
 ## Error Handling Strategy
 
@@ -212,4 +234,3 @@ Optional keys (if included in pass one):
 4. Pedal-trigger recording and sequencer-trigger playback both operate end-to-end.
 5. Test suite includes new config + runtime + GUI integration coverage.
 6. Documentation explains configuration and startup for live usage.
-
