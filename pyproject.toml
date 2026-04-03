@@ -42,7 +42,7 @@ Repository = "https://github.com/yourusername/midi-maker.git"
 Issues = "https://github.com/yourusername/midi-maker/issues"
 
 [project.scripts]
-midi-maker = "midi_maker.cli:main"
+midi-maker = "midi_maker.app.main:main"
 
 [tool.setuptools_scm]
 
