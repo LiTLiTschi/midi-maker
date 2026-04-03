@@ -17,11 +17,12 @@ def test_usage_doc_references_config_required_entrypoint() -> None:
     assert "midi_maker.cli" not in usage
 
 
-def test_app_config_example_json_exists_with_required_keys() -> None:
-    config_example = Path("config.example.json").read_text(encoding="utf-8")
-    assert '"ports"' in config_example
-    assert '"trigger_input"' in config_example
-    assert '"cc_source_input"' in config_example
-    assert '"sequencer_input"' in config_example
-    assert '"daw_output"' in config_example
-    assert '"library_path"' in config_example
+def test_app_config_example_yaml_exists_with_required_keys_and_comments() -> None:
+    config_example = Path("config.example.yaml").read_text(encoding="utf-8")
+    assert "# " in config_example
+    assert "ports:" in config_example
+    assert "trigger_input:" in config_example
+    assert "cc_source_input:" in config_example
+    assert "sequencer_input:" in config_example
+    assert "daw_output:" in config_example
+    assert "library_path:" in config_example

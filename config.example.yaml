@@ -1,0 +1,36 @@
+# MIDI Maker application configuration example
+# -------------------------------------------
+# This file is a template for launching the app:
+#   midi-maker --config /path/to/your-config.yaml
+#
+# Use the exact key names shown here. Values are examples and should be
+# replaced with MIDI port names that exist on your own machine.
+
+# MIDI ports used by runtime wiring.
+ports:
+  # Pedal/trigger input used to start/stop recording.
+  trigger_input: "Drum Pedal"
+
+  # MIDI device sending CC data to be recorded.
+  cc_source_input: "MIDI Controller"
+
+  # Sequencer input whose note on/off gates drive playback.
+  sequencer_input: "MPD232"
+
+  # Output port that receives generated CC playback events.
+  daw_output: "To DAW"
+
+# Path to pattern library persistence file.
+# Relative paths resolve from this config file's directory.
+library_path: "patterns/library.json"
+
+# Optional default recording mode at startup.
+# Valid values: HOLD, TOGGLE
+default_recording_mode: "TOGGLE"
+
+# Optional startup channel mappings.
+# Keys are runtime MIDI channels 0..15 (not UI 1..16).
+# Values are pattern IDs already present in the library.
+# Missing pattern IDs are warned and skipped at startup.
+default_channel_mappings:
+  "0": "pattern-id-a"
