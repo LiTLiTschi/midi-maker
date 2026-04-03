@@ -100,6 +100,7 @@ Reuse current backend implementation as-is where possible:
   - No recording/playback side effects occur.
 - Pressing **Start Engine** sets `engine_running=True` and enables live processing.
 - Pressing **Stop Engine** sets `engine_running=False`, stops active playbacks, and prevents new recording/playback actions until restarted.
+- In pass one, **Start/Stop is a reversible runtime gate**, not process termination. Ports remain open while the app window is running.
 
 ### Recording flow
 
@@ -121,7 +122,7 @@ Reuse current backend implementation as-is where possible:
 
 - Recording status display: IDLE / RECORDING / STOPPED
 - HOLD/TOGGLE selector bound to recorder mode
-- Optional recent-event level indicator from captured CC values
+- Recent-event level indicator from captured CC values (**in scope**)
 
 ### Pattern browser
 
@@ -134,7 +135,7 @@ Reuse current backend implementation as-is where possible:
 
 - Channel -> pattern mapping controls
 - Engine Start/Stop
-- Clear mapping action (if included, must be explicit in UI and tests)
+- Clear mapping action (**in scope**)
 
 ## Configuration Contract
 
@@ -150,16 +151,37 @@ python -m midi_maker.app.main --config /path/to/midi-maker.config.json
 
 Minimum required keys:
 
-- Trigger input port name
-- CC source input port name
-- Sequencer input port name
-- DAW output port name
-- Pattern library file path
+```json
+{
+  "ports": {
+    "trigger_input": "Drum Pedal",
+    "cc_source_input": "MIDI Controller",
+    "sequencer_input": "MPD232",
+    "daw_output": "To DAW"
+  },
+  "library_path": "patterns.json",
+  "default_recording_mode": "TOGGLE",
+  "default_channel_mappings": {
+    "1": "pattern-id-a",
+    "2": "pattern-id-b"
+  }
+}
+```
 
-Optional keys (if included in pass one):
+Schema rules (pass one):
 
-- default recording mode
-- default channel mappings
+- `ports.trigger_input`: required non-empty string
+- `ports.cc_source_input`: required non-empty string
+- `ports.sequencer_input`: required non-empty string
+- `ports.daw_output`: required non-empty string
+- `library_path`: required non-empty string
+- `default_recording_mode`: optional string, one of `HOLD` or `TOGGLE` (defaults to `TOGGLE`)
+- `default_channel_mappings`: optional object of stringified integer channel (`"0"`-`"15"`) to non-empty pattern-id string
+
+Optional keys in pass one:
+
+- `default_recording_mode`
+- `default_channel_mappings`
 
 Channel mapping persistence in pass one:
 
@@ -178,9 +200,13 @@ Channel mapping persistence in pass one:
 ### Runtime behavior
 
 - Runtime MIDI send/port errors surface via visible status + logging.
-- Engine Stop performs graceful shutdown:
+- Engine Stop performs reversible runtime halt:
   - stop all active playbacks
-  - flush/close runtime resources cleanly
+  - reset transient in-flight runtime actions
+  - keep ports and GUI alive for next Start
+- App/window exit performs final teardown:
+  - stop all active playbacks
+  - close/release runtime resources
 
 ## Testing Strategy
 
