@@ -23,6 +23,14 @@ class FakeMidiPort:
         self.closed = True
 
 
+class FaultyCloseMidiPort(FakeMidiPort):
+    """Fake port that raises when closed."""
+
+    def close(self) -> None:
+        self.closed = True
+        raise RuntimeError("close failed")
+
+
 class FakeRuntimeDeps:
     """Test double for runtime MIDI adapter dependencies."""
 
@@ -145,6 +153,24 @@ def test_shutdown_stops_engine_and_recording(valid_config: AppConfig) -> None:
 
     assert runtime.engine_running is False
     assert runtime.cc_recorder.is_recording is False
+
+
+def test_shutdown_attempts_all_port_closes_even_if_one_fails(valid_config: AppConfig) -> None:
+    from midi_maker.app.runtime import MidiMakerRuntime
+
+    good_a = FakeMidiPort("good-a")
+    bad = FaultyCloseMidiPort("bad-port")
+    good_b = FakeMidiPort("good-b")
+
+    runtime = MidiMakerRuntime.from_config(valid_config, deps=make_deps())
+    runtime._managed_ports = [good_a, bad, good_b]  # noqa: SLF001 - test internal behavior
+
+    with pytest.raises(RuntimeError, match="Failed to close one or more MIDI ports"):
+        runtime.shutdown()
+
+    assert good_a.closed is True
+    assert bad.closed is True
+    assert good_b.closed is True
 
 
 def test_missing_library_file_initializes_empty_library(valid_config: AppConfig) -> None:

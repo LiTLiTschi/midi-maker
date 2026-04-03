@@ -144,12 +144,22 @@ class MidiMakerRuntime:
         self.engine_running = False
         self.last_status_message = "Runtime shut down"
 
+        close_errors: list[str] = []
         for port in self._managed_ports:
             close = getattr(port, "close", None)
             if callable(close):
-                close()
+                try:
+                    close()
+                except Exception as exc:  # noqa: BLE001 - continue closing all ports
+                    port_name = getattr(port, "name", repr(port))
+                    close_errors.append(f"{port_name}: {exc}")
 
         self._shutdown = True
+        if close_errors:
+            raise RuntimeError(
+                "Failed to close one or more MIDI ports during shutdown: "
+                + "; ".join(close_errors)
+            )
 
 
 def _validate_configured_ports(
